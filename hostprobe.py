@@ -1,5 +1,4 @@
-import random
-import string
+import select
 import socket
 
 max_ttl = 32
@@ -13,46 +12,48 @@ def getNextTTL(ttl, icmp_type, icmp_code):
 		min_ttl = ttl
 	return (min_ttl + max_ttl) / 2
 
-def getRandomId():
-	return ''.join(random.choice(string.lowercase) for i in range(32))
-
-def extractICMP(icmp_rsp):
+def getTypeCode(icmp_rsp):
 	icmp_type = ord(icmp_rsp[20])
 	icmp_code = ord(icmp_rsp[21])
-	icmp_src = "%d.%d.%d.%d" % (ord(icmp_rsp[12]), ord(icmp_rsp[13]),
-		ord(icmp_rsp[14]), ord(icmp_rsp[15]))
-	icmp_data = icmp_rsp[56:]
-	print "%d, %d src: %s" % (icmp_type, icmp_code, icmp_src)
-	print icmp_data
-	return (icmp_type, icmp_code, icmp_src, icmp_data)
+	print "%d, %d" % (icmp_type, icmp_code)
+	return (icmp_type, icmp_code)
 
-def main(dest_host):
-	dest_addr = socket.gethostbyname(dest_host)
-	port = 33465
-	ttl = 16
-	while ttl <= 64:
-		print "max_ttl: %s   min_ttl: %s  ttl: %s" % (max_ttl, min_ttl, ttl)
-		# set up sockets
-		sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-		icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW,
-			socket.IPPROTO_ICMP)
-		sendSock.setsockopt(socket.SOL_IP, socket.IP_TTL, ttl)
+def getRouterIP(icmp_rsp):
+	offset = 12
+	router_ip = "%d.%d.%d.%d" % (ord(icmp_rsp[offset]), ord(icmp_rsp[offset+1]), ord(icmp_rsp[offset+2]), ord(icmp_rsp[offset+3]))
+	return router_ip
 
+def getDest(icmp_rsp):
+	offset = 44
+	dest_ip = "%d.%d.%d.%d" % (ord(icmp_rsp[offset]), ord(icmp_rsp[offset+1]), ord(icmp_rsp[offset+2]), ord(icmp_rsp[offset+3]))
+	dest_port = ord(icmp_rsp[offset+6:offset+7])
+	return (dest_ip, dest_port)
+
+dest_addr = socket.gethostbyname("google.com")
+port = 33465
+ttl = 16
+while ttl <= 64:
+	print "max_ttl: %s   min_ttl: %s  ttl: %s" % (max_ttl, min_ttl, ttl)
+	# set up sockets
+	sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW,
+		socket.IPPROTO_ICMP)
+	sendSock.setsockopt(socket.SOL_IP, socket.IP_TTL, ttl)
 		# send a short message to the destination
-		identifier = getRandomId()
-		sendSock.sendto(identifier, (dest_addr, port))
-		
-		icmp_rsp = icmpSock.recv(512)
-		(icmp_type, icmp_code, icmp_src, icmp_data) = extractICMP(icmp_rsp)
-	#	if icmp_data == identifier: # icmp message is from udp msg
-		ttl = getNextTTL(ttl, icmp_type, icmp_code)
-		
-		sendSock.close()
-		icmpSock.close()
-		
-		if min_ttl == max_ttl - 1:
-			break
-	print ttl + 1
-
-if __name__ == '__main__':
-	main("yahoo.com")
+	message = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	sendSock.sendto(message, (dest_addr, port))
+	
+	# capture icmp response
+	rlist, wlist, elist = select.select([icmpSock], [], [], 3000)
+	for socket in rlist:
+		if socket is icmpSock:
+			icmp_rsp = icmpSock.recv(512)
+			(icmp_type, icmp_code) = getTypeCode(icmp_rsp)
+			ttl = getNextTTL(ttl, icmp_type, icmp_code)
+	
+	sendSock.close()
+	icmpSock.close()
+	
+	if min_ttl == max_ttl - 1:
+		break
+#print ttl + 1
