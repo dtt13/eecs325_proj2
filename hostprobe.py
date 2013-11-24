@@ -1,5 +1,6 @@
 import select
 import socket
+import sys
 
 class Probe(object):
 	"""docstring for Probe"""
@@ -80,7 +81,8 @@ def getDest(icmp_rsp):
 	dest_port = ord(icmp_rsp[offset+6])*256 + ord(icmp_rsp[offset+7])
 	return (dest_ip, dest_port)
 
-probe = Probe("yahoo.com")
+print sys.argv[1]
+probe = Probe(sys.argv[1])
 while True:
 	print "max_ttl: %s   min_ttl: %s  ttl: %s" % (probe.max_ttl, probe.min_ttl, probe.ttl)
 	# set up sockets
@@ -98,6 +100,6 @@ while True:
 		print "host was unreachable"
 		break
 	if probe.max_ttl != 'inf' and probe.min_ttl == probe.max_ttl - 1:
-		print "hops: %d" % probe.ttl + 1
+		print "hops: %d" % (probe.ttl + 1)
 		break
 probe.close()
