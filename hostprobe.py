@@ -23,13 +23,13 @@ class Probe(object):
 		# capture a response
 		icmp_rsp = ''
 		(icmp_type, icmp_code) = (3, 0)
-		rlist, wlist, elist = select.select([self.icmpSock], [], [], 3000)
+		rlist, wlist, elist = select.select([self.icmpSock], [], [], 3)
 		for skt in rlist:
 			if skt is self.icmpSock:
 				icmp_rsp = self.icmpSock.recv(512)
-				if isMatch(icmp_rsp):
+				if self.isMatch(icmp_rsp):
 					(icmp_type, icmp_code) = getTypeCode(icmp_rsp)
-		getNextTTL(ttl, icmp_type, icmp_code)
+		self.getNextTTL(icmp_type, icmp_code)
 		return icmp_rsp
 
 	def isMatch(self, icmp_rsp):
@@ -60,8 +60,7 @@ class Probe(object):
 		self.icmpSock.close()
 
 def getIPHeaderLength(icmp_rsp):
-	length = ord(icmp_rsp) & 0x0F
-	print length
+	length = (ord(icmp_rsp[0]) & 0x0F) * 4
 	return length
 
 def getTypeCode(icmp_rsp):
@@ -81,19 +80,24 @@ def getDest(icmp_rsp):
 	dest_port = ord(icmp_rsp[offset+6])*256 + ord(icmp_rsp[offset+7])
 	return (dest_ip, dest_port)
 
-probe = Probe("google.com")
-while probe.ttl <= 64:
-	# print "max_ttl: %s   min_ttl: %s  ttl: %s" % (max_ttl, min_ttl, ttl)
+probe = Probe("yahoo.com")
+while True:
+	print "max_ttl: %s   min_ttl: %s  ttl: %s" % (probe.max_ttl, probe.min_ttl, probe.ttl)
 	# set up sockets
 	probe.sendMessage()
 	response = probe.getResponse()
-	print "router ip:"
-	print getRouterIP(response)
-	print "type, code:"
-	print "%d, %d" % getTypeCode(response)
-	print "dest ip, dest port:"
-	print "%s, %d" % getDest(response)
-	# if min_ttl == max_ttl - 1:
-	break
-#print ttl + 1
+	if response != '':
+		print "router ip:"
+		print getRouterIP(response)
+		print "type, code:"
+		print "%d, %d" % getTypeCode(response)
+		print "dest ip, dest port:"
+		print "%s, %d" % getDest(response)
+		print
+	if probe.ttl > 64:
+		print "host was unreachable"
+		break
+	if probe.max_ttl != 'inf' and probe.min_ttl == probe.max_ttl - 1:
+		print "hops: %d" % probe.ttl + 1
+		break
 probe.close()
