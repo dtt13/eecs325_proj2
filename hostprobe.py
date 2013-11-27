@@ -1,7 +1,37 @@
 import select
 import socket
 
-max_ttl = 32
+class Probe(object):
+	"""docstring for Probe"""
+	def __init__(self, dest_host):
+		self.dest_addr = socket.gethostbyname(dest_host)
+		self.dest_port = 33465
+		ttl = 16
+
+	def sendMessage(self):
+		# create a socket
+		sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+		sendSock.setsockopt(socket.SOL_IP, socket.IP_TTL, ttl)
+		# send a short message to the destination
+		message = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		sendSock.sendto(message, (dest_addr, dest_port))
+		sendSock.close()
+
+	def getResponse(self):
+		# create a socket
+		icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+		# capture a response
+		icmp_rsp = ''
+		rlist, wlist, elist = select.select([icmpSock], [], [], 3000)
+		for socket in rlist:
+			if socket is icmpSock:
+				icmp_rsp = icmpSock.recv(512)
+				# (icmp_type, icmp_code) = getTypeCode(icmp_rsp)
+				# ttl = getNextTTL(ttl, icmp_type, icmp_code)
+		icmpSock.close()
+		return icmp_rsp
+
+max_ttl = 64
 min_ttl = 0
 
 def getNextTTL(ttl, icmp_type, icmp_code):
@@ -29,31 +59,18 @@ def getDest(icmp_rsp):
 	dest_port = ord(icmp_rsp[offset+6:offset+7])
 	return (dest_ip, dest_port)
 
-dest_addr = socket.gethostbyname("google.com")
-port = 33465
-ttl = 16
-while ttl <= 64:
-	print "max_ttl: %s   min_ttl: %s  ttl: %s" % (max_ttl, min_ttl, ttl)
+probe = Probe("google.com")
+while probe.ttl <= 64:
+	# print "max_ttl: %s   min_ttl: %s  ttl: %s" % (max_ttl, min_ttl, ttl)
 	# set up sockets
-	sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-	icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW,
-		socket.IPPROTO_ICMP)
-	sendSock.setsockopt(socket.SOL_IP, socket.IP_TTL, ttl)
-		# send a short message to the destination
-	message = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	sendSock.sendto(message, (dest_addr, port))
-	
-	# capture icmp response
-	rlist, wlist, elist = select.select([icmpSock], [], [], 3000)
-	for socket in rlist:
-		if socket is icmpSock:
-			icmp_rsp = icmpSock.recv(512)
-			(icmp_type, icmp_code) = getTypeCode(icmp_rsp)
-			ttl = getNextTTL(ttl, icmp_type, icmp_code)
-	
-	sendSock.close()
-	icmpSock.close()
-	
-	if min_ttl == max_ttl - 1:
-		break
+	probe.sendMessage()
+	response = probe.getResponse()
+	print "router ip:"
+	print getRouterIP(response)
+	print "type, code:"
+	print "%d, %d" % getTypeCode(response)
+	print "dest ip, dest port"
+	print "%s, %d" % getDest(response)
+	# if min_ttl == max_ttl - 1:
+	break
 #print ttl + 1
