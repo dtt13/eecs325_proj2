@@ -9,6 +9,8 @@ class Probe(object):
 		self.sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 		self.icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
 		self.ttl = 16
+		self.max_ttl = 'inf'
+		self.min_ttl = 0
 
 	def sendMessage(self):
 		# setup sending socket
@@ -20,36 +22,56 @@ class Probe(object):
 	def getResponse(self):
 		# capture a response
 		icmp_rsp = ''
+		(icmp_type, icmp_code) = (3, 0)
 		rlist, wlist, elist = select.select([self.icmpSock], [], [], 3000)
-		for socket in rlist:
-			if socket is self.icmpSock:
+		for skt in rlist:
+			if skt is self.icmpSock:
 				icmp_rsp = self.icmpSock.recv(512)
-				# (icmp_type, icmp_code) = getTypeCode(icmp_rsp)
-				# ttl = getNextTTL(ttl, icmp_type, icmp_code)
+				if isMatch(icmp_rsp):
+					(icmp_type, icmp_code) = getTypeCode(icmp_rsp)
+		getNextTTL(ttl, icmp_type, icmp_code)
 		return icmp_rsp
+
+	def isMatch(self, icmp_rsp):
+		return (getDest(icmp_rsp) == (self.dest_addr, self.dest_port))
+
+	def getNextTTL(self, icmp_type, icmp_code):
+		if self.max_ttl == 'inf':
+			if icmp_type == 3 and icmp_code == 3: # too long
+				self.max_ttl = self.ttl
+				self.ttl = (self.max_ttl + self.min_ttl) / 2
+			elif icmp_type == 11 and icmp_code == 0: # too short
+				self.min_ttl = self.ttl
+				self.ttl *= 2
+			else: # timeout or other response
+				self.ttl *= 2
+		else:	
+			if icmp_type == 3 and icmp_code == 3: # too long
+				self.max_ttl = self.ttl
+				self.ttl = (self.max_ttl + self.min_ttl) / 2
+			elif icmp_type == 11 and icmp_code == 0: # too short
+				self.min_ttl = self.ttl
+				self.ttl = (self.max_ttl + self.min_ttl) / 2
+			else: # timeout or other response
+				self.ttl *= 2
 
 	def close(self):
 		self.sendSock.close()
 		self.icmpSock.close()
 
-max_ttl = 64
-min_ttl = 0
-
-def getNextTTL(ttl, icmp_type, icmp_code):
-	global max_ttl, min_ttl
-	if icmp_type == 3 and icmp_code == 3: # too long
-		max_ttl = ttl
-	elif icmp_type == 11 and icmp_code == 0: # too short
-		min_ttl = ttl
-	return (min_ttl + max_ttl) / 2
+def getIPHeaderLength(icmp_rsp):
+	length = ord(icmp_rsp) & 0x0F
+	print length
+	return length
 
 def getTypeCode(icmp_rsp):
-	icmp_type = ord(icmp_rsp[20])
-	icmp_code = ord(icmp_rsp[21])
+	offset = getIPHeaderLength(icmp_rsp)
+	icmp_type = ord(icmp_rsp[offset])
+	icmp_code = ord(icmp_rsp[offset+1])
 	return (icmp_type, icmp_code)
 
 def getRouterIP(icmp_rsp):
-	offset = 12
+	offset = 12 # src in ip header
 	router_ip = "%d.%d.%d.%d" % (ord(icmp_rsp[offset]), ord(icmp_rsp[offset+1]), ord(icmp_rsp[offset+2]), ord(icmp_rsp[offset+3]))
 	return router_ip
 
