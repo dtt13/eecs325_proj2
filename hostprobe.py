@@ -2,26 +2,31 @@ import select
 import socket
 import sys
 import random
+import struct
 
 class Probe(object):
 	"""probes a specific host"""
 	def __init__(self, dest_host):
+		self.src_addr = '192.168.0.34'
 		self.dest_addr = socket.gethostbyname(dest_host)
 		self.dest_port = random.randint(16000, 56000)
-		self.sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+		self.msg = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 		self.icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
 		self.ttl = 16
 		self.max_ttl = 'inf'
 		self.min_ttl = 0
+		print self.src_addr
 		print self.dest_addr
 		print self.dest_port
 
 	def sendMessage(self):
 		# setup sending socket
-		self.sendSock.setsockopt(socket.SOL_IP, socket.IP_TTL, self.ttl)
-		# send a short message to the destination
+		sendSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
 		message = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-		self.sendSock.sendto(message, (self.dest_addr, self.dest_port))
+		packet = self.generateIpHeader() + self.generateUdpHeader() + message
+		# send a short message to the destination
+		sendSock.sendto(packet, (self.dest_addr, self.dest_port))
+		sendSock.close()
 
 	def getResponse(self):
 		# capture a response
@@ -60,9 +65,28 @@ class Probe(object):
 			else: # timeout or other response
 				self.ttl *= 2
 				self.min_ttl += 1
+	
+	def generateIpHeader(self):
+		ip_ihl_ver = (4 << 4) + 5
+		ip_tos = 0
+		ip_total_length = 0
+		self.idNum = random.randint(1, 65535) # 16 bit id
+		ip_frag_off = 0
+		ip_protocol = socket.IPPROTO_UDP
+		ip_checksum = 0
+		ip_src = socket.inet_aton(self.src_addr)
+		ip_dest = socket.inet_aton(self.dest_addr)
+		ip_header = struct.pack('!BBHHHBBH4s4s', ip_ihl_ver, ip_tos, ip_total_length, self.idNum, ip_frag_off, self.ttl, ip_protocol, ip_checksum, ip_src, ip_dest)
+		return ip_header
+
+	def generateUdpHeader(self):
+		udp_src = 34000 # random
+		udp_total_length = 8 + len(self.msg)
+		udp_checksum = 0
+		udp_header = struct.pack('!HHHH', udp_src, self.dest_port, udp_total_length, udp_checksum)
+		return udp_header
 
 	def close(self):
-		self.sendSock.close()
 		self.icmpSock.close()
 
 def getIPHeaderLength(icmp_rsp):
