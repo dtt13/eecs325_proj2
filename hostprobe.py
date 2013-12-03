@@ -46,6 +46,7 @@ class Probe(object):
 				self.ttl *= 2
 			else: # timeout or other response
 				self.ttl *= 2
+				self.min_ttl += 1
 		else:	
 			if icmp_type == 3 and icmp_code == 3: # too long
 				self.max_ttl = self.ttl
@@ -55,6 +56,7 @@ class Probe(object):
 				self.ttl = (self.max_ttl + self.min_ttl) / 2
 			else: # timeout or other response
 				self.ttl *= 2
+				self.min_ttl += 1
 
 	def close(self):
 		self.sendSock.close()
@@ -81,13 +83,7 @@ def getDest(icmp_rsp):
 	dest_port = ord(icmp_rsp[offset+6])*256 + ord(icmp_rsp[offset+7])
 	return (dest_ip, dest_port)
 
-print sys.argv[1]
-probe = Probe(sys.argv[1])
-while True:
-	print "max_ttl: %s   min_ttl: %s  ttl: %s" % (probe.max_ttl, probe.min_ttl, probe.ttl)
-	# set up sockets
-	probe.sendMessage()
-	response = probe.getResponse()
+def printResponse(response):
 	if response != '':
 		print "router ip:"
 		print getRouterIP(response)
@@ -96,6 +92,14 @@ while True:
 		print "dest ip, dest port:"
 		print "%s, %d" % getDest(response)
 		print
+
+print "scanning %s..." % sys.argv[1]
+probe = Probe(sys.argv[1])
+while True:
+	print "max_ttl: %s   min_ttl: %s  ttl: %s" % (probe.max_ttl, probe.min_ttl, probe.ttl)
+	probe.sendMessage()
+	response = probe.getResponse()
+	printResponse(response)
 	if probe.ttl > 64:
 		print "host was unreachable"
 		break
