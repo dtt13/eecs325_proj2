@@ -89,12 +89,12 @@ class Probe(object):
 		return ip_header
 
 	def generateUdpHeader(self):
-		udp_src = 34000 # random
+		udp_src = 0
 		udp_total_length = 8 + len(self.msg)
 		udp_checksum = 0
 		udp_header = struct.pack('!HHHH', udp_src, self.dest_port, udp_total_length, udp_checksum)
-		udp_checksum = self.checksum(self.msg)
-		udp_header = struct.pack('!HHHH', udp_src, self.dest_port, udp_total_length, udp_checksum)
+		# udp_checksum = self.checksum(self.msg)
+		# udp_header = struct.pack('!HHHH', udp_src, self.dest_port, udp_total_length, udp_checksum)
 		return udp_header
 
 	def close(self):
