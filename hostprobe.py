@@ -1,17 +1,20 @@
 import select
 import socket
 import sys
+import random
 
 class Probe(object):
-	"""docstring for Probe"""
+	"""probes a specific host"""
 	def __init__(self, dest_host):
 		self.dest_addr = socket.gethostbyname(dest_host)
-		self.dest_port = 33465
+		self.dest_port = random.randint(16000, 56000)
 		self.sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 		self.icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
 		self.ttl = 16
 		self.max_ttl = 'inf'
 		self.min_ttl = 0
+		print self.dest_addr
+		print self.dest_port
 
 	def sendMessage(self):
 		# setup sending socket
