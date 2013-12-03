@@ -7,7 +7,7 @@ import struct
 class Probe(object):
 	"""probes a specific host"""
 	def __init__(self, dest_host):
-		self.src_addr = '192.168.0.34'
+		self.src_addr = '192.168.0.35'
 		self.dest_addr = socket.gethostbyname(dest_host)
 		self.dest_port = random.randint(16000, 56000)
 		self.msg = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -66,6 +66,15 @@ class Probe(object):
 				self.ttl *= 2
 				self.min_ttl += 1
 	
+	def checksum(self, data):
+		check = 0
+		for i in range(0, len(data), 2):
+			check += ord(data[i]) + (ord(data[i+1]) << 8)
+		check = (check >> 16) + (check & 0xffff)
+		check = check + (check >> 16)
+		check = ~check & 0xffff
+		return check
+	
 	def generateIpHeader(self):
 		ip_ihl_ver = (4 << 4) + 5
 		ip_tos = 0
@@ -83,6 +92,8 @@ class Probe(object):
 		udp_src = 34000 # random
 		udp_total_length = 8 + len(self.msg)
 		udp_checksum = 0
+		udp_header = struct.pack('!HHHH', udp_src, self.dest_port, udp_total_length, udp_checksum)
+		udp_checksum = self.checksum(self.msg)
 		udp_header = struct.pack('!HHHH', udp_src, self.dest_port, udp_total_length, udp_checksum)
 		return udp_header
 
