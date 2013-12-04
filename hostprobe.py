@@ -3,21 +3,20 @@ import socket
 import sys
 import random
 import struct
+import time
 
 class Probe(object):
+	msg = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	ttl = 1
+	max_ttl = 4 
+	min_ttl = 0
+	timer = 0
+
 	"""probes a specific host"""
 	def __init__(self, dest_host):
-		self.src_addr = '192.168.0.35'
 		self.dest_addr = socket.gethostbyname(dest_host)
 		self.dest_port = random.randint(16000, 56000)
-		self.msg = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 		self.icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
-		self.ttl = 16
-		self.max_ttl = 'inf'
-		self.min_ttl = 0
-		print self.src_addr
-		print self.dest_addr
-		print self.dest_port
 
 	def sendMessage(self):
 		# setup sending socket
@@ -25,28 +24,33 @@ class Probe(object):
 		message = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 		packet = self.generateIpHeader() + self.generateUdpHeader() + message
 		# send a short message to the destination
+		self.timer = time.time()
 		sendSock.sendto(packet, (self.dest_addr, self.dest_port))
 		sendSock.close()
 
 	def getResponse(self):
 		# capture a response
 		icmp_rsp = ''
-		(icmp_type, icmp_code) = (3, 0)
+		(icmp_type, icmp_code) = (0, 0)
 		rlist, wlist, elist = select.select([self.icmpSock], [], [], 3)
 		for skt in rlist:
 			if skt is self.icmpSock:
 				icmp_rsp = self.icmpSock.recv(512)
 				if self.isMatch(icmp_rsp):
+					self.timer = time.time() - self.timer
 					(icmp_type, icmp_code) = getTypeCode(icmp_rsp)
 		self.getNextTTL(icmp_type, icmp_code)
 		return icmp_rsp
 
 	def isMatch(self, icmp_rsp):
-		return (getDest(icmp_rsp) == (self.dest_addr, self.dest_port))
+		return (getIpIdentification(icmp_rsp) == self.ip_id)
 
 	def getNextTTL(self, icmp_type, icmp_code):
+		self.ttl += 1
+		self.min_ttl = self.ttl
+		"""
 		if self.max_ttl == 'inf':
-			if icmp_type == 3 and icmp_code == 3: # too long
+			if icmp_type == 3: # too long
 				self.max_ttl = self.ttl
 				self.ttl = (self.max_ttl + self.min_ttl) / 2
 			elif icmp_type == 11 and icmp_code == 0: # too short
@@ -56,7 +60,7 @@ class Probe(object):
 				self.ttl *= 2
 				self.min_ttl += 1
 		else:	
-			if icmp_type == 3 and icmp_code == 3: # too long
+			if icmp_type == 3: # too long
 				self.max_ttl = self.ttl
 				self.ttl = (self.max_ttl + self.min_ttl) / 2
 			elif icmp_type == 11 and icmp_code == 0: # too short
@@ -64,7 +68,7 @@ class Probe(object):
 				self.ttl = (self.max_ttl + self.min_ttl) / 2
 			else: # timeout or other response
 				self.ttl *= 2
-				self.min_ttl += 1
+				self.min_ttl += 1"""
 	
 	def checksum(self, data):
 		check = 0
@@ -79,20 +83,21 @@ class Probe(object):
 		ip_ihl_ver = (4 << 4) + 5
 		ip_tos = 0
 		ip_total_length = 0
-		self.idNum = random.randint(1, 65535) # 16 bit id
+		self.ip_id = random.randint(1, 65535) # 16 bit id
 		ip_frag_off = 0
 		ip_protocol = socket.IPPROTO_UDP
 		ip_checksum = 0
-		ip_src = socket.inet_aton(self.src_addr)
+		ip_src = socket.inet_aton('0.0.0.0')
 		ip_dest = socket.inet_aton(self.dest_addr)
-		ip_header = struct.pack('!BBHHHBBH4s4s', ip_ihl_ver, ip_tos, ip_total_length, self.idNum, ip_frag_off, self.ttl, ip_protocol, ip_checksum, ip_src, ip_dest)
+		ip_header = struct.pack('!BBHHHBBH4s4s', ip_ihl_ver, ip_tos, ip_total_length, self.ip_id, ip_frag_off, self.ttl, ip_protocol, ip_checksum, ip_src, ip_dest)
 		return ip_header
 
 	def generateUdpHeader(self):
-		udp_src = 0
+		udp_src = random.randint(33000, 55000)
+		udp_dest = self.dest_port
 		udp_total_length = 8 + len(self.msg)
 		udp_checksum = 0
-		udp_header = struct.pack('!HHHH', udp_src, self.dest_port, udp_total_length, udp_checksum)
+		udp_header = struct.pack('!HHHH', udp_src, udp_dest, udp_total_length, udp_checksum)
 		# udp_checksum = self.checksum(self.msg)
 		# udp_header = struct.pack('!HHHH', udp_src, self.dest_port, udp_total_length, udp_checksum)
 		return udp_header
@@ -110,16 +115,15 @@ def getTypeCode(icmp_rsp):
 	icmp_code = ord(icmp_rsp[offset+1])
 	return (icmp_type, icmp_code)
 
+def getIpIdentification(icmp_rsp):
+	offset = 32
+	ident = (ord(icmp_rsp[offset]) << 8)  + ord(icmp_rsp[offset+1])
+	return ident
+
 def getRouterIP(icmp_rsp):
 	offset = 12 # src in ip header
 	router_ip = "%d.%d.%d.%d" % (ord(icmp_rsp[offset]), ord(icmp_rsp[offset+1]), ord(icmp_rsp[offset+2]), ord(icmp_rsp[offset+3]))
 	return router_ip
-
-def getDest(icmp_rsp):
-	offset = 44
-	dest_ip = "%d.%d.%d.%d" % (ord(icmp_rsp[offset]), ord(icmp_rsp[offset+1]), ord(icmp_rsp[offset+2]), ord(icmp_rsp[offset+3]))
-	dest_port = ord(icmp_rsp[offset+6])*256 + ord(icmp_rsp[offset+7])
-	return (dest_ip, dest_port)
 
 def printResponse(response):
 	if response != '':
@@ -127,10 +131,14 @@ def printResponse(response):
 		print getRouterIP(response)
 		print "type, code:"
 		print "%d, %d" % getTypeCode(response)
-		print "dest ip, dest port:"
-		print "%s, %d" % getDest(response)
 		print
+def usage():
+	print "Please use the following instruction to run HostProbe"
+	print "python hostprobe.py [host]"
 
+if len(sys.argv) != 2:
+	usage()
+	sys.exit()
 print "scanning %s..." % sys.argv[1]
 probe = Probe(sys.argv[1])
 while True:
@@ -142,6 +150,7 @@ while True:
 		print "host was unreachable"
 		break
 	if probe.max_ttl != 'inf' and probe.min_ttl == probe.max_ttl - 1:
-		print "hops: %d" % (probe.ttl + 1)
+		print "hops: %d" % (probe.max_ttl)
+		print "RTT: %.3f ms" % (probe.timer * 1000)
 		break
 probe.close()
