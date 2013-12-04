@@ -16,14 +16,18 @@ class Probe(object):
 	"""probes a specific host"""
 	def __init__(self, dest_host):
 		self.dest_addr = socket.gethostbyname(dest_host)
-		if !self.isValid():
+		if not self.isValid():
 			print "could not identify host %s" % (dest_host)
 			sys.exit()
 		self.dest_port = random.randint(16000, 56000)
 		self.icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
 
 	def isValid(self):
-		return False
+		try:
+			socket.inet_aton(self.dest_addr)
+		except socket.error:
+			return False
+		return True
 
 	def sendMessage(self):
 		# setup sending socket
@@ -38,7 +42,7 @@ class Probe(object):
 		# capture a response
 		icmp_rsp = ''
 		(icmp_type, icmp_code) = (0, 0)
-		rlist, wlist, elist = select.select([self.icmpSock], [], [], timeout)
+		rlist, wlist, elist = select.select([self.icmpSock], [], [], self.timeout)
 		for skt in rlist:
 			if skt is self.icmpSock:
 				icmp_rsp = self.icmpSock.recv(512)
@@ -144,7 +148,7 @@ while True:
 	response = probe.getResponse()
 	printResponse(response)
 	if probe.ttl > 64:
-		print "host could not be reached unreachable"
+		print "host could not be reached"
 		break
 	if probe.max_ttl != 'inf' and probe.min_ttl == probe.max_ttl - 1:
 		print "hops: %d" % (probe.max_ttl)
