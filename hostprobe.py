@@ -7,22 +7,28 @@ import time
 
 class Probe(object):
 	msg = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	ttl = 1
-	max_ttl = 4 
+	timeout = 3 # seconds
+	ttl = 16
+	max_ttl = 'inf' 
 	min_ttl = 0
 	timer = 0
 
 	"""probes a specific host"""
 	def __init__(self, dest_host):
 		self.dest_addr = socket.gethostbyname(dest_host)
+		if !self.isValid():
+			print "could not identify host %s" % (dest_host)
+			sys.exit()
 		self.dest_port = random.randint(16000, 56000)
 		self.icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+
+	def isValid(self):
+		return False
 
 	def sendMessage(self):
 		# setup sending socket
 		sendSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-		message = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-		packet = self.generateIpHeader() + self.generateUdpHeader() + message
+		packet = self.generateIpHeader() + self.generateUdpHeader() + self.msg
 		# send a short message to the destination
 		self.timer = time.time()
 		sendSock.sendto(packet, (self.dest_addr, self.dest_port))
@@ -32,7 +38,7 @@ class Probe(object):
 		# capture a response
 		icmp_rsp = ''
 		(icmp_type, icmp_code) = (0, 0)
-		rlist, wlist, elist = select.select([self.icmpSock], [], [], 3)
+		rlist, wlist, elist = select.select([self.icmpSock], [], [], timeout)
 		for skt in rlist:
 			if skt is self.icmpSock:
 				icmp_rsp = self.icmpSock.recv(512)
@@ -46,6 +52,7 @@ class Probe(object):
 		return (getIpIdentification(icmp_rsp) == self.ip_id)
 
 	def getNextTTL(self, icmp_type, icmp_code):
+		"""
 		self.ttl += 1
 		self.min_ttl = self.ttl
 		"""
@@ -68,16 +75,16 @@ class Probe(object):
 				self.ttl = (self.max_ttl + self.min_ttl) / 2
 			else: # timeout or other response
 				self.ttl *= 2
-				self.min_ttl += 1"""
+				self.min_ttl += 1
 	
-	def checksum(self, data):
-		check = 0
-		for i in range(0, len(data), 2):
-			check += ord(data[i]) + (ord(data[i+1]) << 8)
-		check = (check >> 16) + (check & 0xffff)
-		check = check + (check >> 16)
-		check = ~check & 0xffff
-		return check
+	# def checksum(self, data):
+	# 	check = 0
+	# 	for i in range(0, len(data), 2):
+	# 		check += ord(data[i]) + (ord(data[i+1]) << 8)
+	# 	check = (check >> 16) + (check & 0xffff)
+	# 	check = check + (check >> 16)
+	# 	check = ~check & 0xffff
+	# 	return check
 	
 	def generateIpHeader(self):
 		ip_ihl_ver = (4 << 4) + 5
@@ -105,12 +112,8 @@ class Probe(object):
 	def close(self):
 		self.icmpSock.close()
 
-def getIPHeaderLength(icmp_rsp):
-	length = (ord(icmp_rsp[0]) & 0x0F) * 4
-	return length
-
 def getTypeCode(icmp_rsp):
-	offset = getIPHeaderLength(icmp_rsp)
+	offset = 20
 	icmp_type = ord(icmp_rsp[offset])
 	icmp_code = ord(icmp_rsp[offset+1])
 	return (icmp_type, icmp_code)
@@ -120,18 +123,12 @@ def getIpIdentification(icmp_rsp):
 	ident = (ord(icmp_rsp[offset]) << 8)  + ord(icmp_rsp[offset+1])
 	return ident
 
-def getRouterIP(icmp_rsp):
-	offset = 12 # src in ip header
-	router_ip = "%d.%d.%d.%d" % (ord(icmp_rsp[offset]), ord(icmp_rsp[offset+1]), ord(icmp_rsp[offset+2]), ord(icmp_rsp[offset+3]))
-	return router_ip
-
 def printResponse(response):
 	if response != '':
-		print "router ip:"
-		print getRouterIP(response)
 		print "type, code:"
 		print "%d, %d" % getTypeCode(response)
 		print
+
 def usage():
 	print "Please use the following instruction to run HostProbe"
 	print "python hostprobe.py [host]"
@@ -147,7 +144,7 @@ while True:
 	response = probe.getResponse()
 	printResponse(response)
 	if probe.ttl > 64:
-		print "host was unreachable"
+		print "host could not be reached unreachable"
 		break
 	if probe.max_ttl != 'inf' and probe.min_ttl == probe.max_ttl - 1:
 		print "hops: %d" % (probe.max_ttl)
