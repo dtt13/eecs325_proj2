@@ -31,9 +31,11 @@ class Probe(object):
 
 	def sendMessage(self):
 		# setup sending socket
-		sendSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-		packet = self.generateIpHeader() + self.generateUdpHeader() + self.msg
+		sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+		# packet = self.generateIpHeader() + self.generateUdpHeader() + self.msg
+		sendSock.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, self.ttl)
 		# send a short message to the destination
+		packet = self.msg
 		self.timer = time.time()
 		sendSock.sendto(packet, (self.dest_addr, self.dest_port))
 		sendSock.close()
@@ -45,10 +47,10 @@ class Probe(object):
 		rlist, wlist, elist = select.select([self.icmpSock], [], [], self.timeout)
 		for skt in rlist:
 			if skt is self.icmpSock:
-				icmp_rsp = self.icmpSock.recv(512)
-				if self.isMatch(icmp_rsp):
-					self.timer = time.time() - self.timer
-					(icmp_type, icmp_code) = getTypeCode(icmp_rsp)
+				icmp_rsp = extractIcmpResponse(self.icmpSock.recv(512))
+				# if self.isMatch(icmp_rsp):
+				self.timer = time.time() - self.timer
+				(icmp_type, icmp_code) = getTypeCode(icmp_rsp)
 		self.getNextTTL(icmp_type, icmp_code)
 		return icmp_rsp
 
@@ -116,16 +118,25 @@ class Probe(object):
 	def close(self):
 		self.icmpSock.close()
 
+def extractIcmpResponse(response):
+	return response[20:]
+
 def getTypeCode(icmp_rsp):
-	offset = 20
+	offset = 0
 	icmp_type = ord(icmp_rsp[offset])
 	icmp_code = ord(icmp_rsp[offset+1])
 	return (icmp_type, icmp_code)
 
 def getIpIdentification(icmp_rsp):
-	offset = 32
+	offset = 12
 	ident = (ord(icmp_rsp[offset]) << 8)  + ord(icmp_rsp[offset+1])
 	return ident
+
+def getDestination(icmp_rsp):
+	offset = 24
+	dest_ip = "%d.%d.%d.%d" % (ord(icmp_rsp[offset]), ord(icmp_rsp[offset+1]), ord(icmp_rsp[offset+2]), ord(icmp_rsp[offset+3]))
+	dest_port = ord(icmp_rsp[offset+6]) * 256 + ord(icmp_rsp[offset+7])
+	return (dest_ip, dest_port)
 
 def printResponse(response):
 	if response != '':
