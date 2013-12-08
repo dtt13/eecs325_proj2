@@ -12,6 +12,8 @@ class Probe(object):
 	max_ttl = 'inf' 
 	min_ttl = 0
 	timer = 0
+	rtt = 0
+	dest_port = 33434	
 
 	"""probes a specific host"""
 	def __init__(self, dest_host):
@@ -19,7 +21,6 @@ class Probe(object):
 		if not self.isValid():
 			print "could not identify host %s" % (dest_host)
 			sys.exit()
-		self.dest_port = random.randint(16000, 56000)
 		self.icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
 
 	def isValid(self):
@@ -31,11 +32,9 @@ class Probe(object):
 
 	def sendMessage(self):
 		# setup sending socket
-		sendSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-		# packet = self.generateIpHeader() + self.generateUdpHeader() + self.msg
-		sendSock.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, self.ttl)
+		sendSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+		packet = self.generateIpHeader() + self.generateUdpHeader() + self.msg
 		# send a short message to the destination
-		packet = self.msg
 		self.timer = time.time()
 		sendSock.sendto(packet, (self.dest_addr, self.dest_port))
 		sendSock.close()
@@ -43,14 +42,14 @@ class Probe(object):
 	def getResponse(self):
 		# capture a response
 		icmp_rsp = ''
-		(icmp_type, icmp_code) = (0, 0)
+		(icmp_type, icmp_code) = (-1, -1)
 		rlist, wlist, elist = select.select([self.icmpSock], [], [], self.timeout)
 		for skt in rlist:
 			if skt is self.icmpSock:
 				icmp_rsp = extractIcmpResponse(self.icmpSock.recv(512))
-				# if self.isMatch(icmp_rsp):
-				self.timer = time.time() - self.timer
-				(icmp_type, icmp_code) = getTypeCode(icmp_rsp)
+				if self.isMatch(icmp_rsp):
+					self.timer = time.time() - self.timer
+					(icmp_type, icmp_code) = getTypeCode(icmp_rsp)
 		self.getNextTTL(icmp_type, icmp_code)
 		return icmp_rsp
 
@@ -58,14 +57,11 @@ class Probe(object):
 		return (getIpIdentification(icmp_rsp) == self.ip_id)
 
 	def getNextTTL(self, icmp_type, icmp_code):
-		"""
-		self.ttl += 1
-		self.min_ttl = self.ttl
-		"""
 		if self.max_ttl == 'inf':
 			if icmp_type == 3: # too long
 				self.max_ttl = self.ttl
 				self.ttl = (self.max_ttl + self.min_ttl) / 2
+				self.rtt = self.timer
 			elif icmp_type == 11 and icmp_code == 0: # too short
 				self.min_ttl = self.ttl
 				self.ttl *= 2
@@ -76,21 +72,13 @@ class Probe(object):
 			if icmp_type == 3: # too long
 				self.max_ttl = self.ttl
 				self.ttl = (self.max_ttl + self.min_ttl) / 2
+				self.rtt = self.timer
 			elif icmp_type == 11 and icmp_code == 0: # too short
 				self.min_ttl = self.ttl
 				self.ttl = (self.max_ttl + self.min_ttl) / 2
 			else: # timeout or other response
 				self.ttl *= 2
 				self.min_ttl += 1
-	
-	# def checksum(self, data):
-	# 	check = 0
-	# 	for i in range(0, len(data), 2):
-	# 		check += ord(data[i]) + (ord(data[i+1]) << 8)
-	# 	check = (check >> 16) + (check & 0xffff)
-	# 	check = check + (check >> 16)
-	# 	check = ~check & 0xffff
-	# 	return check
 	
 	def generateIpHeader(self):
 		ip_ihl_ver = (4 << 4) + 5
@@ -111,8 +99,6 @@ class Probe(object):
 		udp_total_length = 8 + len(self.msg)
 		udp_checksum = 0
 		udp_header = struct.pack('!HHHH', udp_src, udp_dest, udp_total_length, udp_checksum)
-		# udp_checksum = self.checksum(self.msg)
-		# udp_header = struct.pack('!HHHH', udp_src, self.dest_port, udp_total_length, udp_checksum)
 		return udp_header
 
 	def close(self):
@@ -132,17 +118,10 @@ def getIpIdentification(icmp_rsp):
 	ident = (ord(icmp_rsp[offset]) << 8)  + ord(icmp_rsp[offset+1])
 	return ident
 
-def getDestination(icmp_rsp):
-	offset = 24
-	dest_ip = "%d.%d.%d.%d" % (ord(icmp_rsp[offset]), ord(icmp_rsp[offset+1]), ord(icmp_rsp[offset+2]), ord(icmp_rsp[offset+3]))
-	dest_port = ord(icmp_rsp[offset+6]) * 256 + ord(icmp_rsp[offset+7])
-	return (dest_ip, dest_port)
-
 def printResponse(response):
 	if response != '':
 		print "type, code:"
 		print "%d, %d" % getTypeCode(response)
-		print
 
 def usage():
 	print "Please use the following instruction to run HostProbe"
@@ -158,11 +137,11 @@ while True:
 	probe.sendMessage()
 	response = probe.getResponse()
 	printResponse(response)
-	if probe.ttl > 64:
+	if probe.ttl > 64: # too many timeouts
 		print "host could not be reached"
 		break
 	if probe.max_ttl != 'inf' and probe.min_ttl == probe.max_ttl - 1:
 		print "hops: %d" % (probe.max_ttl)
-		print "RTT: %.3f ms" % (probe.timer * 1000)
+		print "RTT: %.3f ms" % (probe.rtt * 1000)
 		break
 probe.close()
