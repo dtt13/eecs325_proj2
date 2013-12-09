@@ -15,7 +15,7 @@ class Probe(object):
 	rtt = 0
 	dest_port = 33434	
 
-	"""probes a specific host"""
+	"""probes a specified host"""
 	def __init__(self, dest_host):
 		self.dest_addr = socket.gethostbyname(dest_host)
 		if not self.isValid():
@@ -23,6 +23,7 @@ class Probe(object):
 			sys.exit()
 		self.icmpSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
 
+	# checks if the destination is a valid IP address
 	def isValid(self):
 		try:
 			socket.inet_aton(self.dest_addr)
@@ -30,17 +31,23 @@ class Probe(object):
 			return False
 		return True
 
+	# sends a short UDP message
 	def sendMessage(self):
 		# setup sending socket
 		sendSock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
 		packet = self.generateIpHeader() + self.generateUdpHeader() + self.msg
 		# send a short message to the destination
 		self.timer = time.time()
-		sendSock.sendto(packet, (self.dest_addr, self.dest_port))
+		try:
+			sendSock.sendto(packet, (self.dest_addr, self.dest_port))
+		except socket.error:
+			print "socket unavailable for sending"
+			sys.exit()
 		sendSock.close()
 
+	# checks the ICMP socket listener for a response and captures it if available
+	# may timeout without a response
 	def getResponse(self):
-		# capture a response
 		icmp_rsp = ''
 		(icmp_type, icmp_code) = (-1, -1)
 		rlist, wlist, elist = select.select([self.icmpSock], [], [], self.timeout)
@@ -53,9 +60,11 @@ class Probe(object):
 		self.getNextTTL(icmp_type, icmp_code)
 		return icmp_rsp
 
+	# returns true if ID of response matches that of the ID sent; false otherwise
 	def isMatch(self, icmp_rsp):
 		return (getIpIdentification(icmp_rsp) == self.ip_id)
 
+	# updates the TTL of the probe object
 	def getNextTTL(self, icmp_type, icmp_code):
 		if self.max_ttl == 'inf':
 			if icmp_type == 3: # too long
@@ -80,6 +89,7 @@ class Probe(object):
 				self.ttl *= 2
 				self.min_ttl += 1
 	
+	# creates a custom IP header with specific TTL and random ID
 	def generateIpHeader(self):
 		ip_ihl_ver = (4 << 4) + 5
 		ip_tos = 0
@@ -93,6 +103,7 @@ class Probe(object):
 		ip_header = struct.pack('!BBHHHBBH4s4s', ip_ihl_ver, ip_tos, ip_total_length, self.ip_id, ip_frag_off, self.ttl, ip_protocol, ip_checksum, ip_src, ip_dest)
 		return ip_header
 
+	# creates a simple UDP header from a random port
 	def generateUdpHeader(self):
 		udp_src = random.randint(33000, 55000)
 		udp_dest = self.dest_port
@@ -104,20 +115,24 @@ class Probe(object):
 	def close(self):
 		self.icmpSock.close()
 
+# returns the ICMP response within the IP frame
 def extractIcmpResponse(response):
 	return response[20:]
 
+# determines the ICMP type and code
 def getTypeCode(icmp_rsp):
 	offset = 0
 	icmp_type = ord(icmp_rsp[offset])
 	icmp_code = ord(icmp_rsp[offset+1])
 	return (icmp_type, icmp_code)
 
+# determines the ID from the IP header of the ICMP response
 def getIpIdentification(icmp_rsp):
 	offset = 12
 	ident = (ord(icmp_rsp[offset]) << 8)  + ord(icmp_rsp[offset+1])
 	return ident
 
+# prints the ICMP type and code
 def printResponse(response):
 	if response != '':
 		print "type, code:"
